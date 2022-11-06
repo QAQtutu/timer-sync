@@ -201,9 +201,12 @@
 
       onopen = () => {
         this.heartbeat();
-        this.heartbeatInterval = setInterval(() => {
-          this.heartbeat()
-        }, 3000);
+        this.send('StateSync', null);
+        if (!this.heartbeatInterval) {
+          this.heartbeatInterval = setInterval(() => {
+            this.heartbeat()
+          }, 10000);
+        }
         if (!this.refreshInterval) {
           this.refreshInterval = setInterval(() => { this.refresh(); }, 10);
         }
@@ -227,8 +230,6 @@
           this.time_diff = this.server_time - end;
 
           $delay.textContent = this.delay;
-
-          this.send('StateSync', null);
         } else if ('StateSync' == type) {
           this.timer = data;
 

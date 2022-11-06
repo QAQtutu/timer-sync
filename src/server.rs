@@ -103,6 +103,7 @@ impl Timer {
         self.time = 0;
         self.mode = mode;
         self.state = TimerState::STOP;
+        self.state_sync_all();
     }
 
     pub fn time_sync(&self, sid: &str, time: u64) {
