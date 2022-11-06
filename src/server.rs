@@ -33,6 +33,7 @@ struct Timer {
     counter: u64,
     time: u64,
     state: TimerState,
+    mode: TimerMode,
     pub all_users: HashMap<String, Session>,
 }
 
@@ -41,6 +42,7 @@ impl Timer {
         Timer {
             counter: 60 * 1000,
             time: 0,
+            mode: TimerMode::CountDown,
             state: TimerState::STOP,
             all_users: HashMap::new(),
         }
@@ -51,9 +53,13 @@ impl Timer {
             return;
         }
         let now = now();
-        self.time = now + self.counter;
+        match self.mode {
+            TimerMode::Timer => self.time = now,
+            TimerMode::CountDown => {
+                self.time = now + self.counter;
+            }
+        }
         self.state = TimerState::START;
-
         self.state_sync_all();
     }
 
@@ -62,11 +68,19 @@ impl Timer {
             return;
         }
         let now = now();
-        let mut diff = self.time as i64 - now as i64;
-        if diff < 0 {
-            diff = 0;
+        match self.mode {
+            TimerMode::Timer => {
+                let diff = now - self.time;
+                self.counter += diff;
+            }
+            TimerMode::CountDown => {
+                let mut diff = self.time as i64 - now as i64;
+                if diff < 0 {
+                    diff = 0;
+                }
+                self.counter = diff as u64;
+            }
         }
-        self.counter = diff as u64;
         self.state = TimerState::STOP;
         self.state_sync_all();
     }
@@ -75,6 +89,20 @@ impl Timer {
         self.state = TimerState::STOP;
         self.counter = time;
         self.state_sync_all();
+    }
+
+    pub fn set_mode(&mut self, mode: TimerMode) {
+        match mode {
+            TimerMode::Timer => {
+                self.counter = 0;
+            }
+            TimerMode::CountDown => {
+                self.counter = 60 * 1000;
+            }
+        }
+        self.time = 0;
+        self.mode = mode;
+        self.state = TimerState::STOP;
     }
 
     pub fn time_sync(&self, sid: &str, time: u64) {
@@ -99,6 +127,7 @@ impl Timer {
         return msg::ServerMessage::StateSync(StateSync {
             count_sessions: count,
             state: self.state.to_string(),
+            mode: self.mode.to_string(),
             time: self.time,
             counter: self.counter,
         });
@@ -121,6 +150,20 @@ impl Timer {
 enum TimerState {
     START,
     STOP,
+}
+
+#[derive(PartialEq, Debug)]
+enum TimerMode {
+    Timer,
+    CountDown,
+}
+impl ToString for TimerMode {
+    fn to_string(&self) -> String {
+        match self {
+            TimerMode::Timer => String::from("Timer"),
+            TimerMode::CountDown => String::from("CountDown"),
+        }
+    }
 }
 
 impl ToString for TimerState {
@@ -170,6 +213,14 @@ impl Handler<msg::ClientMessageWapper> for Server {
             ClientMessage::SetTime(time) => {
                 ct.set_time(time);
                 info!("Ip:{} set time to {}ms", msg.ip, time);
+            }
+            ClientMessage::SetMode(mode) => {
+                ct.set_mode(if "Timer" == mode {
+                    TimerMode::Timer
+                } else {
+                    TimerMode::CountDown
+                });
+                info!("Ip:{} set mode to {}", msg.ip, mode);
             }
             ClientMessage::None => {}
         }

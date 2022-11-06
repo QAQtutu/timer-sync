@@ -30,6 +30,7 @@ pub struct TimeSync {
 pub struct StateSync {
     pub count_sessions: usize,
     pub state: String,
+    pub mode: String,
     pub time: u64,
     pub counter: u64,
 }
@@ -42,6 +43,7 @@ pub enum ClientMessage {
     Stop,
     StateSync,
     SetTime(u64),
+    SetMode(String),
     None,
 }
 
@@ -68,6 +70,7 @@ pub fn parse_client_message(msg: &str) -> Result<ClientMessage, serde_json::erro
         "Stop" => return Ok(ClientMessage::Stop),
         "StateSync" => return Ok(ClientMessage::StateSync),
         "SetTime" => return Ok(ClientMessage::SetTime(from_value(data)?)),
+        "SetMode" => return Ok(ClientMessage::SetMode(from_value(data)?)),
         _ => return Ok(ClientMessage::None),
     };
 }

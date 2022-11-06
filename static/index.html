@@ -8,32 +8,106 @@
   <title>Timer Sync!</title>
 
   <style>
+    #timer-info tr>td:first-child {
+      text-align: right;
+      padding-right: 10px;
+      font-weight: bold;
+    }
 
+    button {
+      height: 25px;
+    }
+
+    #reconnect {
+      margin-left: 10px;
+    }
+
+    #timer {
+      font-size: 40px;
+    }
+
+    @media screen and (max-width:600px) {
+      #title {
+        text-align: center;
+      }
+
+      #timer {
+        text-align: center;
+      }
+    }
   </style>
 </head>
 
 <body>
-  <h1>Timer!</h1>
-  <h2>
+  <h1 id="title">Timer!</h1>
+  <h2 id="timer">
     <span id="timerHour">00</span>:<span id="timerMinute">00</span>:<span id="timerSec">00</span>:<span
       id="timerMillis">00</span>
   </h2>
-  <h5>Delay: <span id="delay">3</span> ms</h5>
-  <h5>Time Diff: <span id="timeDiff">3</span> ms</h5>
-  <h5>Server Time: <span id="serverTime"></span></h5>
-  <h5>Local Time: <span id="localTime"></span></h5>
+  <table id="timer-info">
+    <tbody>
+      <tr>
+        <td>Connection Status</td>
+        <td>
+          <span id="connectionStatus"></span><button id="reconnect" onclick="client.reconnect()">Reconnect</button>
+        </td>
+      </tr>
+      <tr>
+        <td>Delay</td>
+        <td>
+          <span id="delay">3</span> ms
+        </td>
+      </tr>
+      <tr>
+        <td>Time Diff</td>
+        <td>
+          <span id="timeDiff">3</span> ms
+        </td>
+      </tr>
+      <tr>
+        <td>Server Time</td>
+        <td>
+          <span id="serverTime"></span>
+        </td>
+      </tr>
+      <tr>
+        <td>Local Time</td>
+        <td>
+          <span id="localTime"></span>
+        </td>
+      </tr>
+      <tr>
+        <td>Mode Change</td>
+        <td><button id="modeToggle" onclick="client.modeToggle()">Timer</button></td>
+      </tr>
+      <tr>
+        <td>State Change</td>
+        <td>
+          <div>
+            <button id="stateToggle" onclick="client.stateToggle()">Start</button>
+            <button id="setTimeOneHour" onclick="client.setTime(60*60)">⏱1 hour</button>
+            <button id="setTimeOneMinute" onclick="client.setTime(60)">⏱1 minute</button>
+            <button id="timerReset" onclick="client.setTime(0)">⏱Reset</button>
+          </div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
   <div>
-    <button id="stateToggle" onclick="stateToggle()">Start</button>
-    <!-- <button id="start" onclick="start()">Start</button>
-    <button id="stop" onclick="stop()">Stop</button> -->
-    <button id="setTime" onclick="setTime(60*60)">⏱1 hour</button>
-    <button id="setTime" onclick="setTime(60)">⏱1 minute</button>
+
   </div>
+
 
   <div id="debug"></div>
 
   <script>
+    const $title = document.querySelector('#title')
     const $delay = document.querySelector('#delay')
+
+    const $connectionStatus = document.querySelector('#connectionStatus')
+    const $reconnect = document.querySelector('#reconnect')
+
     const $timeDiff = document.querySelector('#timeDiff')
     const $serverTime = document.querySelector('#serverTime')
     const $localTime = document.querySelector('#localTime')
@@ -44,7 +118,12 @@
     const $timerMillis = document.querySelector('#timerMillis')
 
     const $debug = document.querySelector('#debug')
+
     const $stateToggle = document.querySelector('#stateToggle')
+    const $modeToggle = document.querySelector('#modeToggle')
+    const $setTimeOneHour = document.querySelector('#setTimeOneHour')
+    const $setTimeOneMinute = document.querySelector('#setTimeOneMinute')
+    const $timerReset = document.querySelector('#timerReset')
 
     class Client {
       constructor() {
@@ -52,11 +131,11 @@
         this.refreshInterval = null;
         this.heartbeatInterval = null;
         this.socket = null;
-        // Network latency between client and server
         this.delay = 0;
         this.server_time = new Date().getTime();
         this.time_diff = 0;
         this.refreshInterval = setInterval(() => { this.refresh(); }, 10);
+        this.wsStatus = 'Not connected';
 
         // Timer
         this.timer = null
@@ -70,33 +149,39 @@
         const server_time = now.getTime() + this.time_diff
         $serverTime.textContent = new Date(server_time);
 
-        const ct = this.timer
+        $connectionStatus.textContent = this.wsStatus;
+        if (this.wsStatus == 'Connected') {
+          $connectionStatus.style.color = 'green';
+          $reconnect.style.display = 'none'
+        } else {
+          $connectionStatus.style.color = 'red';
+          $reconnect.style.display = null
+        }
 
-        // $debug.textContent = JSON.stringify([server_time, ct.time])
         if (this.timer) {
           let time = 0;
-          if (ct.state == 'START') {
-            time = ct.time - server_time;
-            if (time < 0) {
-              time = 0;
-            }
+          if (this.timer.state == 'START') {
+            time = this.timer.mode == 'Timer' ? (server_time - this.timer.time + this.timer.counter) : Math.max(this.timer.time - server_time, 0);
           } else {
-            time = ct.counter
+            time = this.timer.counter
           }
-
-          function format (num, len) {
-            return (num + '').padStart(len, '0');
-          }
-          $timerHour.textContent = format(Math.trunc((time / 1000 / 60 / 60)), 2);
-          $timerMinute.textContent = format(Math.trunc((time / 1000 / 60) % 60), 2);
-          $timerSec.textContent = format(Math.trunc((time / 1000) % 60), 2);
-          $timerMillis.textContent = format(Math.trunc(time % 1000), 3)
+          this.showTime(time);
         }
       }
 
-      connect (cid) {
-        const { location } = window
+      showTime (time) {
+        function format (num, len) {
+          return (num + '').padStart(len, '0');
+        }
+        $timerHour.textContent = format(Math.trunc((time / 1000 / 60 / 60)), 2);
+        $timerMinute.textContent = format(Math.trunc((time / 1000 / 60) % 60), 2);
+        $timerSec.textContent = format(Math.trunc((time / 1000) % 60), 2);
+        $timerMillis.textContent = format(Math.trunc(time % 1000), 3)
+      }
 
+      connect (cid) {
+        this.cid = cid;
+        const { location } = window
         const proto = location.protocol.startsWith('https') ? 'wss' : 'ws'
         const wsUri = `${proto}://${location.host}/ws/${cid}`
 
@@ -108,11 +193,21 @@
         this.socket = socket
       }
 
+      reconnect () {
+        if (this.cid >= 0) {
+          this.connect(this.cid)
+        }
+      }
+
       onopen = () => {
         this.heartbeat();
         this.heartbeatInterval = setInterval(() => {
           this.heartbeat()
         }, 3000);
+        if (!this.refreshInterval) {
+          this.refreshInterval = setInterval(() => { this.refresh(); }, 10);
+        }
+        this.wsStatus = 'Connected';
       }
       onmessage (event) {
         let data = JSON.parse(event.data);
@@ -121,7 +216,13 @@
         if ("TimeSync" == type) {
 
           const end = new Date().getTime();
-          this.delay = (end - data.start) / 2;
+          let delay_now = (end - data.start) / 2;
+
+          if (this.delay > 0 && delay_now > this.delay) {
+            return
+          }
+          this.delay = delay_now
+
           this.server_time = data.server + this.delay
           this.time_diff = this.server_time - end;
 
@@ -132,6 +233,20 @@
           this.timer = data;
 
           $stateToggle.textContent = this.timer.state == 'START' ? '⏹️Stop' : '▶️Start'
+
+          if (this.timer.mode == 'Timer') {
+            $title.textContent = 'Timer'
+            $modeToggle.textContent = 'CountDown'
+            $setTimeOneHour.style.display = 'none';
+            $setTimeOneMinute.style.display = 'none';
+            $timerReset.style.display = null;
+          } else {
+            $title.textContent = 'CountDown'
+            $modeToggle.textContent = 'Timer'
+            $setTimeOneHour.style.display = null;
+            $setTimeOneMinute.style.display = null;
+            $timerReset.style.display = 'none';
+          }
         }
       }
 
@@ -140,6 +255,7 @@
         if (this.heartbeatInterval) {
           clearInterval(this.heartbeatInterval)
         }
+        this.wsStatus = 'Not connected';
       }
       heartbeat () {
         if (!this.socket) {
@@ -166,31 +282,13 @@
       stateToggle () {
         this.send(this.timer.state == 'START' ? 'Stop' : 'Start', null);
       }
+      modeToggle () {
+        this.send('SetMode', this.timer.mode == 'Timer' ? 'CountDown' : 'Timer');
+      }
     }
 
     var client = new Client();
     client.connect(0);
-
-    function start () {
-      if (client) {
-        client.start();
-      }
-    }
-    function stop () {
-      if (client) {
-        client.stop();
-      }
-    }
-    function setTime (sec) {
-      if (client) {
-        client.setTime(sec);
-      }
-    }
-    function stateToggle () {
-      if (client) {
-        client.stateToggle();
-      }
-    }
 
   </script>
 </body>
