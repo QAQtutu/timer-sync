@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport"
+    content="width=device-width,initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Timer Sync!</title>
+
+  <style>
+
+  </style>
+</head>
+
+<body>
+  <h1>Timer!</h1>
+  <h2>
+    <span id="timerHour">00</span>:<span id="timerMinute">00</span>:<span id="timerSec">00</span>:<span
+      id="timerMillis">00</span>
+  </h2>
+  <h5>Delay: <span id="delay">3</span> ms</h5>
+  <h5>Time Diff: <span id="timeDiff">3</span> ms</h5>
+  <h5>Server Time: <span id="serverTime"></span></h5>
+  <h5>Local Time: <span id="localTime"></span></h5>
+  <div>
+    <button id="stateToggle" onclick="stateToggle()">Start</button>
+    <!-- <button id="start" onclick="start()">Start</button>
+    <button id="stop" onclick="stop()">Stop</button> -->
+    <button id="setTime" onclick="setTime(60*60)">⏱1 hour</button>
+    <button id="setTime" onclick="setTime(60)">⏱1 minute</button>
+  </div>
+
+  <div id="debug"></div>
+
+  <script>
+    const $delay = document.querySelector('#delay')
+    const $timeDiff = document.querySelector('#timeDiff')
+    const $serverTime = document.querySelector('#serverTime')
+    const $localTime = document.querySelector('#localTime')
+
+    const $timerHour = document.querySelector('#timerHour')
+    const $timerMinute = document.querySelector('#timerMinute')
+    const $timerSec = document.querySelector('#timerSec')
+    const $timerMillis = document.querySelector('#timerMillis')
+
+    const $debug = document.querySelector('#debug')
+    const $stateToggle = document.querySelector('#stateToggle')
+
+    class Client {
+      constructor() {
+        this.cid = -1;
+        this.refreshInterval = null;
+        this.heartbeatInterval = null;
+        this.socket = null;
+        // Network latency between client and server
+        this.delay = 0;
+        this.server_time = new Date().getTime();
+        this.time_diff = 0;
+        this.refreshInterval = setInterval(() => { this.refresh(); }, 10);
+
+        // Timer
+        this.timer = null
+      }
+
+      refresh () {
+        let now = new Date();
+        $localTime.textContent = now;
+        $timeDiff.textContent = this.time_diff;
+
+        const server_time = now.getTime() + this.time_diff
+        $serverTime.textContent = new Date(server_time);
+
+        const ct = this.timer
+
+        // $debug.textContent = JSON.stringify([server_time, ct.time])
+        if (this.timer) {
+          let time = 0;
+          if (ct.state == 'START') {
+            time = ct.time - server_time;
+            if (time < 0) {
+              time = 0;
+            }
+          } else {
+            time = ct.counter
+          }
+
+          function format (num, len) {
+            return (num + '').padStart(len, '0');
+          }
+          $timerHour.textContent = format(Math.trunc((time / 1000 / 60 / 60)), 2);
+          $timerMinute.textContent = format(Math.trunc((time / 1000 / 60) % 60), 2);
+          $timerSec.textContent = format(Math.trunc((time / 1000) % 60), 2);
+          $timerMillis.textContent = format(Math.trunc(time % 1000), 3)
+        }
+      }
+
+      connect (cid) {
+        const { location } = window
+
+        const proto = location.protocol.startsWith('https') ? 'wss' : 'ws'
+        const wsUri = `${proto}://${location.host}/ws/${cid}`
+
+        let socket = new WebSocket(wsUri);
+
+        socket.onopen = () => { this.onopen() }
+        socket.onmessage = (event) => { this.onmessage(event) }
+        socket.onclose = () => { this.onclose() }
+        this.socket = socket
+      }
+
+      onopen = () => {
+        this.heartbeat();
+        this.heartbeatInterval = setInterval(() => {
+          this.heartbeat()
+        }, 3000);
+      }
+      onmessage (event) {
+        let data = JSON.parse(event.data);
+        let type = data.type
+        data = data.data
+        if ("TimeSync" == type) {
+
+          const end = new Date().getTime();
+          this.delay = (end - data.start) / 2;
+          this.server_time = data.server + this.delay
+          this.time_diff = this.server_time - end;
+
+          $delay.textContent = this.delay;
+
+          this.send('StateSync', null);
+        } else if ('StateSync' == type) {
+          this.timer = data;
+
+          $stateToggle.textContent = this.timer.state == 'START' ? '⏹️Stop' : '▶️Start'
+        }
+      }
+
+      onclose = () => {
+        this.socket = null;
+        if (this.heartbeatInterval) {
+          clearInterval(this.heartbeatInterval)
+        }
+      }
+      heartbeat () {
+        if (!this.socket) {
+          return;
+        }
+        this.send('TimeSync', new Date().getTime());
+      }
+
+      start () {
+        this.send('Start', null);
+      }
+      stop () {
+        this.send('Stop', null);
+      }
+      setTime (sec) {
+        this.send('SetTime', sec * 1000);
+      }
+      send (type, data) {
+        if (!this.socket || !type) {
+          return;
+        }
+        this.socket.send(JSON.stringify({ type, data }));
+      }
+      stateToggle () {
+        this.send(this.timer.state == 'START' ? 'Stop' : 'Start', null);
+      }
+    }
+
+    var client = new Client();
+    client.connect(0);
+
+    function start () {
+      if (client) {
+        client.start();
+      }
+    }
+    function stop () {
+      if (client) {
+        client.stop();
+      }
+    }
+    function setTime (sec) {
+      if (client) {
+        client.setTime(sec);
+      }
+    }
+    function stateToggle () {
+      if (client) {
+        client.stateToggle();
+      }
+    }
+
+  </script>
+</body>
+
+</html>
