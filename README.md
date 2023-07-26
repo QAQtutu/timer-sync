@@ -1,7 +1,3 @@
-# Timer Sync
-
-A timer Demo that synchronizes multiple clients using trust.
-
 ## Online Demo
 [http://118.24.72.153:8081/](http://118.24.72.153:8081/)
 
